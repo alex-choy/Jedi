@@ -1,11 +1,16 @@
 package system
-
 import value._
-
+import scala.io.StdIn
+/*
+ * Notes:
+ * console is Ewok's user interface
+ * parsers and global environment are created here
+ * console.main launches repl
+ */
 object console {
-   val parsers = new EwokParsers // for now
+   val parsers = new WookieParsers // for now
    val globalEnv = new Environment
-   var verbose = true
+   var verbose = false
 
    def execute(cmmd: String): String = {
       val tree = parsers.parseAll(parsers.expression, cmmd)
@@ -19,13 +24,14 @@ object console {
       }
    }
    
+   // read-execute-print loop
     def repl {
       var more = true
       var cmmd = ""
       while(more) {
          try {
             print("-> ")
-            cmmd = readLine
+            cmmd = StdIn.readLine
             if (cmmd == "quit") more = false
             else println(execute(cmmd))
          } 

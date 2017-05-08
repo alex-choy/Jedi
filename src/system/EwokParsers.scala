@@ -4,111 +4,101 @@ import scala.util.parsing.combinator._
 import expression._
 import value._
 
+/*
+ * Notes:
+ * disjunction reduces to conjunction reduces to equality ... reduces to term
+ * if A reduces to B, then B will have higher precedence than A
+ * Example: sum reduces to product, so a + b * c = a + (b * c)
+ * Had to make some big corrections to numeral regex
+ * This could probably have been a singleton
+ */
 class EwokParsers extends RegexParsers {
 
-  /* 
-		Ewok grammar:
-
-   expression ::= declaration | conditional | disjunction
-   declaration ::= "def"~identifier~"="~expression
-   conditional ::= "if"~"("~expression~")"~expression~("else"~expression)?
-   disjunction ::= conjunction~("||"~conjunction)*
-   conjunction ::= equality~("&&"~equality)*
-   equality ::= inequality~("=="~inequality)*
-   inequality ::= sum ~ ("<" ~ sum)?
-   sum ::= product ~ (("+" | "-") ~ product)*
-   product ::= term ~ (("*" | "/") ~ term)*
-   term ::= funcall | identifier | number | boole | "("~expression~")"
-   funcall ::= identifier~operands
-   operands ::= "("~(expression ~ (","~expression)*)? ~ ")"
-   identifier ::= [a-zA-Z][a-zA-Z0-9]*
-   number ::= [1-9][0-9]*("."[0-9]+)?
-   boole ::= "true" | "false"
-   
-*/
-
-  def boole: Parser[Boole] = """true|false""".r ^^ {
-    case exp => Boole(exp.toBoolean)
-  }
-
-  def conditional: Parser[Conditional] = "if" ~ "(" ~ expression ~ ")" ~ expression ~ opt("else" ~ expression) ^^ {
-    case "if" ~ "(" ~ condition ~ ")" ~ result1 ~ Some("else" ~ result2) => Conditional(condition, result1, result2)
-    case "if" ~ "(" ~ condition ~ ")" ~ result1 ~ None                   => Conditional(condition, result1)
-  }
-
-  def conjunction: Parser[Expression] = equality ~ rep("&&" ~> equality) ^^ {
-    case cond ~ Nil   => cond
-    case cond ~ conds => Conjunction(cond :: conds)
-  }
+  def expression: Parser[Expression] = declaration | conditional | disjunction | failure("Invalid expression")
 
   def declaration: Parser[Declaration] = "def" ~ identifier ~ "=" ~ expression ^^ {
     case "def" ~ id ~ "=" ~ exp => Declaration(id, exp)
   }
 
-  def disjunction: Parser[Expression] = conjunction ~ rep("||" ~> conjunction) ^^ {
-    case con ~ Nil  => con
-    case con ~ cons => Disjunction(con :: cons)
+  def conditional: Parser[Conditional] = "if" ~ "(" ~ expression ~ ")" ~ expression ~ opt("else" ~ expression) ^^ {
+    case "if" ~ "(" ~ cond ~ ")" ~ cons ~ None               => Conditional(cond, cons)
+    case "if" ~ "(" ~ cond ~ ")" ~ cons ~ Some("else" ~ alt) => Conditional(cond, cons, alt)
   }
 
-  def divide(exp: Expression): Expression = {
-    val div = Identifier("div")
-    val one = Number(1.0)
-    FunCall(div, List(one, exp))
+  def disjunction: Parser[Expression] = conjunction ~ rep("||" ~> conjunction) ^^ {
+    case con ~ Nil  => con
+    case con ~ more => Disjunction(con :: more)
+  }
+
+  def conjunction: Parser[Expression] = equality ~ rep("&&" ~> equality) ^^ {
+    case eq ~ Nil  => eq
+    case eq ~ more => Conjunction(eq :: more)
   }
 
   def equality: Parser[Expression] = inequality ~ rep("==" ~> inequality) ^^ {
-    case unequal ~ Nil      => unequal
-    case unequal ~ unequals => FunCall(Identifier("equals"), unequal :: unequals)
+    case ineq ~ Nil  => ineq
+    case ineq ~ more => FunCall(Identifier("equals"), ineq :: more)
   }
 
-  def expression: Parser[Expression] = (declaration | conditional | disjunction | failure("Invalid expression"))
+  def inequality: Parser[Expression] = sum ~ opt(("<" | ">" | "!=") ~ sum) ^^ {
+    case t ~ None           => t
+    case t ~ Some("<" ~ s)  => FunCall(Identifier("less"), List(t, s))
+    case t ~ Some(">" ~ s)  => FunCall(Identifier("more"), List(t, s))
+    case t ~ Some("!=" ~ s) => FunCall(Identifier("unequals"), List(t, s))
+  }
 
-  def funcall: Parser[Expression] = term ~ opt(operands) ^^ {
-    case term ~ None   => term
-    case t ~ Some(Nil) => FunCall(t.asInstanceOf[Identifier], Nil)
-    case t ~ Some(ops) => FunCall(t.asInstanceOf[Identifier], ops)
+  // exp -> 0 - exp
+  def negate(exp: Expression): Expression = {
+    val sub = Identifier("sub")
+    val zero = Number(0)
+    FunCall(sub, List(zero, exp))
+  }
+
+  def sum: Parser[Expression] = product ~ rep(("+" | "-") ~ product ^^ {
+    case "+" ~ s => s
+    case "-" ~ s => negate(s)
+  }) ^^ {
+    case p ~ Nil  => p
+    case p ~ rest => FunCall(Identifier("add"), p :: rest)
+  }
+
+  def invert(exp: Expression): Expression = {
+    val div = Identifier("div")
+    val one = Number(1)
+    FunCall(div, List(one, exp))
+  }
+
+  def product: Parser[Expression] = term ~ rep(("*" | "/") ~ term ^^ {
+    case "*" ~ s => s
+    case "/" ~ s => invert(s)
+  }) ^^ {
+    case p ~ Nil  => p
+    case p ~ rest => FunCall(Identifier("mul"), p :: rest)
+  }
+
+  def term: Parser[Expression] = funCall | literal | "(" ~> expression <~ ")"
+
+  def literal = boole | numeral | identifier
+
+  def boole: Parser[Boole] = ("true" | "false") ^^ {
+    case "true"  => Boole(true)
+    case "false" => Boole(false)
+  }
+
+  def operands: Parser[List[Expression]] = "(" ~ rep(expression) ~ ")" ^^ {
+    case "(" ~ exps ~ ")" => exps
+  }
+
+  def funCall: Parser[Expression] = identifier ~ operands ^^ {
+    case op ~ ops => FunCall(op, ops)
   }
 
   def identifier: Parser[Identifier] = """[a-zA-Z][a-zA-Z0-9]*""".r ^^ {
     case someString => Identifier(someString)
   }
 
-  def inequality: Parser[Expression] = sum ~ rep("<" ~> sum) ^^ {
-    case unequal ~ Nil         => unequal
-    case unequal ~ unequalList => FunCall(Identifier("less"), unequal :: unequalList)
+  def numeral: Parser[Number] = """(\+|-)?(0|[1-9][0-9]*(.[0-9]+)?)""".r ^^ {
+    case digits => Number(digits.toDouble)
   }
-
-  def literal: Parser[Literal] = boole | number
-
-  def negate(exp: Expression): Expression = {
-    val sub = Identifier("sub")
-    val zero = Number(0.0)
-    FunCall(sub, List(zero, exp))
-  }
-
-  def number: Parser[Number] = """[1-9][0-9]*(","[0-9]+)?""".r ^^ {
-    case someString => Number(someString.toDouble)
-  }
-
-  def operands: Parser[List[Expression]] = "(" ~> opt(expression ~ rep("," ~> expression)) <~ ")" ^^ {
-    case None             => Nil
-    case Some(exp ~ Nil)  => List(exp)
-    case Some(exp ~ exps) => exp :: exps
-    case _                => Nil
-  }
-
-  def product: Parser[Expression] =
-    funcall ~ rep("""\*|/""".r ~ funcall ^^ { case "*" ~ s => s case "/" ~ s => divide(s) }) ^^ {
-      case operand ~ Nil       => operand
-      case operand1 ~ operand2 => FunCall(Identifier("mul"), operand1 :: operand2)
-    }
-
-  def sum: Parser[Expression] =
-    product ~ rep(("+" | "-") ~ product ^^ { case "+" ~ s => s case "-" ~ s => negate(s) }) ^^ {
-      case p ~ Nil  => p
-      case p ~ rest => FunCall(Identifier("add"), p :: rest)
-    }
-
-  def term: Parser[Expression] = (funcall | identifier | literal | "(" ~> expression <~ ")")
 
 }
