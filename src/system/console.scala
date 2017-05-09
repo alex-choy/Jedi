@@ -8,7 +8,7 @@ import scala.io.StdIn
  * console.main launches repl
  */
 object console {
-   val parsers = new WookieParsers // for now
+   val parsers = new EwokParsers // for now
    val globalEnv = new Environment
    var verbose = false
 

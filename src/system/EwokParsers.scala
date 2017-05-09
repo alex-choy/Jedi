@@ -92,7 +92,7 @@ class EwokParsers extends RegexParsers {
     case p ~ rest => FunCall(Identifier("mul"), p :: rest)
   }
 
-  def term: Parser[Expression] = funCall | literal | "(" ~> expression <~ ")"
+  def term: Parser[Expression] = lambda | block | funCall | literal | "(" ~> expression <~ ")"
 
   def literal = boole | numeral | identifier
 
@@ -115,6 +115,27 @@ class EwokParsers extends RegexParsers {
 
   def numeral: Parser[Number] = """(\+|-)?(0|[1-9][0-9]*(.[0-9]+)?)""".r ^^ {
     case digits => Number(digits.toDouble)
+  }
+
+  // block ::= "{" ~ expression ~ (";" ~ expression)* ~ "}" ^^ { make a Block}
+  def block: Parser[Expression] = "{" ~ expression ~ rep(";" ~ expression ^^ { case ";" ~ exp => exp }) ~ "}" ^^ {
+    case "{" ~ exp1 ~ Nil ~ "}"  => Block(List(exp1))
+    case "{" ~ exp1 ~ exp2 ~ "}" => Block(exp1 :: exp2)
+  }
+
+  // lambda ::= "lambda" ~ parameters ~ expression ^^ {make a Lambda}  
+
+  def lambda: Parser[Expression] = "lambda" ~ parameters ~ expression ^^ {
+    case "lambda" ~ params ~ exp => Lambda(params, exp)
+  }
+
+  // parameters ::= "(" ~ identifier* ~ ")" ^^ { make List[Identifier] }
+
+  def parameters: Parser[List[Identifier]] = "(" ~> opt(identifier ~ rep("," ~> identifier)) <~ ")" ^^ {
+    case None           => Nil
+    case Some(e ~ Nil)  => List(e)
+    case Some(e ~ exps) => e :: exps
+    case _              => Nil
   }
 
 }
