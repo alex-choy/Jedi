@@ -11,6 +11,22 @@ import value._
  * Example: sum reduces to product, so a + b * c = a + (b * c)
  * Had to make some big corrections to numeral regex
  * This could probably have been a singleton
+ * 
+ *  expression ::= declaration | conditional | disjunction
+   declaration ::= "def"~identifier~"="~expression
+   conditional ::= "if"~"("~expression~")"~expression~("else"~expression)?
+   disjunction ::= conjunction~("||"~conjunction)*
+   conjunction ::= equality~("&&"~equality)*
+   equality ::= inequality~("=="~inequality)*
+   inequality ::= sum ~ ("<" ~ sum)?
+   sum ::= product ~ (("+" | "-") ~ product)*
+   product ::= term ~ (("*" | "/") ~ term)*
+   term ::= funcall | identifier | number | boole | "("~expression~")"
+   funcall ::= identifier~operands
+   operands ::= "("~(expression ~ (","~expression)*)? ~ ")"
+   identifier ::= [a-zA-Z][a-zA-Z0-9]*
+   number ::= [1-9][0-9]*("."[0-9]+)?
+   boole ::= "true" | "false"
  */
 class EwokParsers extends RegexParsers {
 
