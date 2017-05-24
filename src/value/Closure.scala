@@ -11,7 +11,7 @@ class Closure(val params: List[Identifier], val body: Expression, val defEnv: En
      if(params.size != args.size)
        throw new UndefinedException(params(0))
      var localEnv = new Environment(defEnv)
-     for(i <- 0 to params.size){
+     for(i <- 0 until params.size){
        localEnv.put(params(i), args(i))
      }
      
